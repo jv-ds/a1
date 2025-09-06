@@ -69,11 +69,17 @@ const initialState: State = {
  * @param s Current state
  * @returns Updated state
  */
-const tick = (s: State) => ({
+const tick = (s: State) => {
+
+    const velocity = s.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
+    const Y = s.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+
+    return {        
     ...s,
-    birdV: s.birdVelocity + Constants.GRAVITY,      //each tick, velocity increased by gravity (constant as ticks progress)
-    birdY: s.birdY + s.birdVelocity + Constants.GRAVITY, //updated to move the bird down based on how fast its falling (due to velocity and gravity)
-})
+    birdVelocity: velocity,
+    birdY: Y, 
+    };
+};
 
 // Rendering (side effects)
 
