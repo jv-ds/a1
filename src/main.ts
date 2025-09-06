@@ -42,6 +42,7 @@ const Birb = {
 const Constants = {
     PIPE_WIDTH: 50,
     TICK_RATE_MS: 500, // Might need to change this!
+    GRAVITY: 1.6,      //pixels fallen per tick
 } as const;
 
 // User input
@@ -52,10 +53,14 @@ type Key = "Space";
 
 type State = Readonly<{
     gameEnd: boolean;
+    birdY: number;   //vertcial position of the bird
+    birdVelocity: number;   //velocity of bird (speed at which it falls)
 }>;
 
 const initialState: State = {
     gameEnd: false,
+    birdY: Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2, //bird starts at centre (vertical pos is at centre)
+    birdVelocity: 0,        //bird stationary at start
 };
 
 /**
@@ -64,7 +69,11 @@ const initialState: State = {
  * @param s Current state
  * @returns Updated state
  */
-const tick = (s: State) => s;
+const tick = (s: State) => ({
+    ...s,
+    birdV: s.birdVelocity + Constants.GRAVITY,      //each tick, velocity increased by gravity (constant as ticks progress)
+    birdY: s.birdY + s.birdVelocity + Constants.GRAVITY, //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+})
 
 // Rendering (side effects)
 
@@ -129,15 +138,8 @@ const render = (): ((s: State) => void) => {
         "viewBox",
         `0 0 ${Viewport.CANVAS_WIDTH} ${Viewport.CANVAS_HEIGHT}`,
     );
-    /**
-     * Renders the current state to the canvas.
-     *
-     * In MVC terms, this updates the View using the Model.
-     *
-     * @param s Current state
-     */
-    return (s: State) => {
-        // Add birb to the main grid canvas
+
+    //birdImg moved outside of return(s) function so we don't duplicate in each tick
         const birdImg = createSvgElement(svg.namespaceURI, "image", {
             href: "assets/birb.png",
             x: `${Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2}`,
@@ -146,6 +148,17 @@ const render = (): ((s: State) => void) => {
             height: `${Birb.HEIGHT}`,
         });
         svg.appendChild(birdImg);
+
+    /**
+     * Renders the current state to the canvas.
+     *
+     * In MVC terms, this updates the View using the Model.
+     *
+     * @param s Current state
+     */
+    return (s: State) => {
+
+        birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
 
         // Draw a static pipe as a demonstration
         const pipeGapY = 200; // vertical center of the gap
@@ -184,7 +197,7 @@ export const state$ = (csvContents: string): Observable<State> => {
     /** Determines the rate of time steps */
     const tick$ = interval(Constants.TICK_RATE_MS);
 
-    return tick$.pipe(scan((s: State) => ({ gameEnd: false }), initialState));
+    return tick$.pipe(scan((s: State) => tick(s), initialState));   //takes previous state, runs through tick, produces updated state
 };
 
 // The following simply runs your main function on window load.  Make sure to leave it in place.
