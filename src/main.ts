@@ -42,7 +42,8 @@ const Birb = {
 const Constants = {
     PIPE_WIDTH: 50,
     TICK_RATE_MS: 500, // Might need to change this!
-    GRAVITY: 1.6,      //pixels fallen per tick
+    GRAVITY: 1.6,       //pixels fallen per tick
+    FLAP: 6             //pixels 'jumped' when flapped
 } as const;
 
 // User input
@@ -201,10 +202,25 @@ export const state$ = (csvContents: string): Observable<State> => {
         key$.pipe(filter(({ code }) => code === keyCode));
 
     /** Determines the rate of time steps */
-    const tick$ = interval(Constants.TICK_RATE_MS);
+    const tick$ = interval(Constants.TICK_RATE_MS).pipe(map(() => (s: State): State => tick(s)));      //each tick turned into reducer function, moves bird through tick(s)
 
-    return tick$.pipe(scan((s: State) => tick(s), initialState));   //takes previous state, runs through tick, produces updated state
+    const flap$ = fromKey("Space").pipe(            //listens to spacebar       
+    map(() => (s: State): State => ({               //transforms into reducer function
+      ...s,                                         //copies current state
+      birdVelocity: -Constants.FLAP,                //sets upward velocity (negative gravity since we want to move upward)
+    }))
+  );
+
+  const reducers$: Observable<(s: State) => State> =                    //declare observable to take state and return a state
+    new Observable(subscriber => {                                      
+      const subscribers = [tick$, flap$].map(src => src.subscribe(subscriber));   //for each reducer function, subscribe to it and send what it emits to its subscriber
+      return () => subscribers.forEach(s => s.unsubscribe());                     //both reducer functions ignored when reducer$ is unsubscribed 
+    });
+
+  return reducers$.pipe(scan((state, reducer) => reducer(state), initialState));    //transform stream of reducer functions by applying them, producing next state, outputting state values 
 };
+
+
 
 // The following simply runs your main function on window load.  Make sure to leave it in place.
 // You should not need to change this, beware if you are.
