@@ -43,7 +43,7 @@ const Constants = {
     PIPE_WIDTH: 50,
     TICK_RATE_MS: 500, // Might need to change this!
     GRAVITY: 1.6,       //pixels fallen per tick
-    FLAP: 6,             //pixels 'jumped' when flapped
+    FLAP: 10,             //pixels 'jumped' when flapped
     SCROLL: 7,           //speed which field horizontally scrolls
     PIPE_GAP: 100,       //vertical gaps that the bird must fly through
     PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
@@ -74,6 +74,7 @@ type State = Readonly<{
     nextPipeX: number;              //x position for next pipe
     birdX: number;                  //x position of bird
     birdLives: number;
+    hitCooldown: number;            //cooldown ticks after bird hits
 }>;
 
 const initialState: State = {
@@ -86,6 +87,7 @@ const initialState: State = {
     nextPipeX: 0,            //next pipe x coord
     birdX: Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2,    //start position given in original code
     birdLives: 3,           //starts with 3
+    hitCooldown: 0,         //cooldown after a hit to prevent overlapping hits
 };
 
 //helper function to calculate pipeGap (gaps in pipes bird can ply through)
@@ -115,6 +117,53 @@ const generatePipe = (s: State): State => {
   };
 };
 
+//helper shape type for rectangles
+type Rect = Readonly<{ x:number; y:number; width:number; height:number }>;
+
+//returns T if rectangles overlap
+const overlap = (a: Rect, b: Rect) => a.x < b.x + b.width && a.x + a.width > b.x &&a.y < b.y + b.height && a.y + a.height > b.y;
+
+//takes pipe, calculates two rectangles that make up pipe
+const pipeRects = (p: Pipe): { top: Rect; bottom: Rect } => {
+    const topHeight    = p.gapY - Constants.PIPE_GAP / 2;
+    const bottomY      = p.gapY + Constants.PIPE_GAP / 2;
+    const bottomHeight = Viewport.CANVAS_HEIGHT - bottomY;
+
+  return {      //returns rectangles
+    top:    { x: p.frame, y: 0, width: Constants.PIPE_WIDTH, height: topHeight },
+    bottom: { x: p.frame, y: bottomY, width: Constants.PIPE_WIDTH, height: bottomHeight },
+  };
+};
+
+//prevents bird moving outside of screen
+const clamp = (x: number, lo: number, hi: number) =>
+    Math.max(lo, Math.min(hi, x));
+
+//random number generator
+const randomNum = (lo: number, hi: number) =>
+    lo + Math.random() * (hi - lo);
+
+//determines which side the bird hit
+const collisionType = (bird: Rect, pipes: ReadonlyArray<Pipe>): "TOP" | "BOTTOM" | "NONE" => {
+    const topScreen = bird.y <= 0;      //T if bird hit top of frame
+
+    const bottomScreen = bird.y + bird.height >= Viewport.CANVAS_HEIGHT;        //T if bird hit bottom of frame
+
+    const anyTopPipeHit = pipes             //checks if bird hit top half of any pipe
+      .map(pipeRects)                       //converts into two rectangles
+      .some(({ top }) => overlap(bird, top));       //checks if bird overlaps with one of those rects
+
+    const anyBottomPipeHit = pipes          //checks if bird hit bottom half of any pipe
+      .map(pipeRects)                       //converts into two rectangles
+      .some(({ bottom }) => overlap(bird, bottom)); //checks if bird overlaps with one of those rects
+
+    return topScreen || anyTopPipeHit       //if bird hit top screen or top of pipe
+    ? "TOP"
+    : bottomScreen || anyBottomPipeHit      //if bird hit bottom screen or top of pipe
+    ? "BOTTOM"  
+    : "NONE";                                   
+};
+
 /**
  * Updates the state by proceeding with one time step.
  *
@@ -134,14 +183,53 @@ const tick = (s: State) => {
 
     const inFramePipes = s1.pipes.filter(p => p.frame + Constants.PIPE_WIDTH >= s1.scrollX);    //filters only pipes in frame
 
+    const birdFrameX = nextX + s1.scrollX;                   //gives frame position of bird
+    const birdRect: Rect = { x: birdFrameX, y: Y, width: Birb.WIDTH, height: Birb.HEIGHT };     //bird's rectangle in the game
+
+    const pipeHit = collisionType(birdRect, inFramePipes);  //checks to see collision type     
+
+    //top and bottom screen checks
+    const topScreen = Y <= 0;      
+    const bottomScreen = Y + Birb.HEIGHT >= Viewport.CANVAS_HEIGHT;
+
+    const canTakeHit = s1.hitCooldown <= 0;         //activates cooldown to prevent losing multiple lives from one hit
+
+    const anyHit = pipeHit !== "NONE" || topScreen || bottomScreen; //true if bird hit pipe or top or bottom
+
+    //calculates velocity after tick based off hit
+    const bounceVel =
+        topScreen || pipeHit === "TOP" ?  randomNum(4, 10)     // bounce down
+        : bottomScreen || pipeHit === "BOTTOM" ? -randomNum(4, 10)     // bounce up
+        : velocity;
+
+    //restricts bird's vertical position from going out of screen
+    const boundedY =
+    topScreen ? 0               //at top force y = 0
+    : bottomScreen ? Viewport.CANVAS_HEIGHT - Birb.HEIGHT       //at bottom force y = bottom edge
+    : Y;
+
+    //takes away life
+    const livesAfter =
+        anyHit && canTakeHit ? Math.max(0, s1.birdLives - 1) : s1.birdLives;
+
+    //if hit happened, reset cooldown to 6 ticks, else reduce by 1
+    const hitCooldownAfter =
+        anyHit && canTakeHit ? 6 : Math.max(0, s1.hitCooldown - 1);
+
+    //if no lives, game is over
+    const gameEndNow = livesAfter <= 0;
+
 
     return {        
     ...s1,
-    birdVelocity: velocity,
-    birdY: Y, 
+    birdVelocity: bounceVel,
+    birdY: clamp(boundedY, 0, Viewport.CANVAS_HEIGHT - Birb.HEIGHT),
     birdX: nextX,                                           // ← apply horizontal motion
     scrollX: s1.scrollX + Constants.SCROLL,                   //each tick, frame moves rightward by scroll value
     pipes: inFramePipes,                        //pipes not in frame are forgotten
+    birdLives: livesAfter,                      //lives in next state
+    hitCooldown: hitCooldownAfter,              //hit cooldown in next state
+    gameEnd: gameEndNow || s1.gameEnd,          //T if game ended
     };
 };
 
@@ -282,6 +370,8 @@ const render = (): ((s: State) => void) => {
         
 
         livesText.innerText = `${s.birdLives}`;         //displays text for amount of bird lives
+
+        if (s.gameEnd) {show(gameOver);}                 //shows game over message 
     };
 };
 
