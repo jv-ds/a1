@@ -150,6 +150,10 @@ const render = (): ((s: State) => void) => {
         `0 0 ${Viewport.CANVAS_WIDTH} ${Viewport.CANVAS_HEIGHT}`,
     );
 
+    //create frame group- everything that should scroll is withint his group
+    const frame = createSvgElement(svg.namespaceURI, "g", { id: "frame" });
+    svg.appendChild(frame);                 //sets frame into svg 
+
     //birdImg moved outside of return(s) function so we don't duplicate in each tick
         const birdImg = createSvgElement(svg.namespaceURI, "image", {
             href: "assets/birb.png",
@@ -158,19 +162,10 @@ const render = (): ((s: State) => void) => {
             width: `${Birb.WIDTH}`,
             height: `${Birb.HEIGHT}`,
         });
-        svg.appendChild(birdImg);
+        frame.appendChild(birdImg);         //birdImg attached to frame        
 
-    /**
-     * Renders the current state to the canvas.
-     *
-     * In MVC terms, this updates the View using the Model.
-     *
-     * @param s Current state
-     */
-    return (s: State) => {
-
-        birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
-
+        
+        //Pipe moved outside of return function- avoids appending pipes every frame in return(s)
         // Draw a static pipe as a demonstration
         const pipeGapY = 200; // vertical center of the gap
         const pipeGapHeight = 100;
@@ -193,8 +188,22 @@ const render = (): ((s: State) => void) => {
             fill: "green",
         });
 
-        svg.appendChild(pipeTop);
-        svg.appendChild(pipeBottom);
+        frame.appendChild(pipeTop);         //pipes attached to frame
+        frame.appendChild(pipeBottom);
+
+    /**
+     * Renders the current state to the canvas.
+     *
+     * In MVC terms, this updates the View using the Model.
+     *
+     * @param s Current state
+     */
+    return (s: State) => {
+
+        frame.setAttribute("transform", `translate(${-s.scrollX}, 0)`);     //transform updates all children at once, shifts co-ordinates to move to the right (neg moves right)
+
+        birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
+
     };
 };
 
