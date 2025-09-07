@@ -43,7 +43,8 @@ const Constants = {
     PIPE_WIDTH: 50,
     TICK_RATE_MS: 500, // Might need to change this!
     GRAVITY: 1.6,       //pixels fallen per tick
-    FLAP: 6             //pixels 'jumped' when flapped
+    FLAP: 6,             //pixels 'jumped' when flapped
+    SCROLL: 7           //speed which field horizontally scrolls
 } as const;
 
 // User input
@@ -56,12 +57,14 @@ type State = Readonly<{
     gameEnd: boolean;
     birdY: number;   //vertcial position of the bird
     birdVelocity: number;   //velocity of bird (speed at which it falls)
+    scrollX: number;        //position of frame in the field
 }>;
 
 const initialState: State = {
     gameEnd: false,
     birdY: Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2, //bird starts at centre (vertical pos is at centre)
     birdVelocity: 0,        //bird stationary at start
+    scrollX: 0,             //frame begins at 0
 };
 
 /**
