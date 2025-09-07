@@ -75,6 +75,7 @@ type State = Readonly<{
     birdX: number;                  //x position of bird
     birdLives: number;
     hitCooldown: number;            //cooldown ticks after bird hits
+    score: number;                  //player score
 }>;
 
 const initialState: State = {
@@ -88,7 +89,8 @@ const initialState: State = {
     birdX: Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2,    //start position given in original code
     birdLives: 3,           //starts with 3
     hitCooldown: 0,         //cooldown after a hit to prevent overlapping hits
-};
+    score: 0                //initially 0
+};  
 
 //helper function to calculate pipeGap (gaps in pipes bird can ply through)
 const pipeGap = (): number => {
@@ -192,6 +194,17 @@ const tick = (s: State) => {
     const topScreen = Y <= 0;      
     const bottomScreen = Y + Birb.HEIGHT >= Viewport.CANVAS_HEIGHT;
 
+    const birdFrameXPrev = s1.birdX + s1.scrollX;                   //calculates bird X position BEFORE tick updates
+    const birdFrameXNext = nextX + (s1.scrollX + Constants.SCROLL); //calculates next bird x position
+
+    //checks if bird has passed
+    const newlyPassed =
+    inFramePipes
+        .map(p => p.frame + Constants.PIPE_WIDTH)       //turns each pipe into right edge, if right edge goes from right to left of the bird, bird has passed
+        .filter(rightEdge => rightEdge > birdFrameXPrev && rightEdge <= birdFrameXNext) //keeps only pipes with right edges that were crossed during CURRENT tick - prevents double counting
+        .length;
+
+
     const canTakeHit = s1.hitCooldown <= 0;         //activates cooldown to prevent losing multiple lives from one hit
 
     const anyHit = pipeHit !== "NONE" || topScreen || bottomScreen; //true if bird hit pipe or top or bottom
@@ -201,6 +214,8 @@ const tick = (s: State) => {
         topScreen || pipeHit === "TOP" ?  randomNum(4, 10)     // bounce down
         : bottomScreen || pipeHit === "BOTTOM" ? -randomNum(4, 10)     // bounce up
         : velocity;
+
+    const scoreAfter = !anyHit ? s1.score + newlyPassed : s1.score;   //if hit, don't award point this tick (avoids doubling up), if no hit, increase by newlypassed
 
     //restricts bird's vertical position from going out of screen
     const boundedY =
@@ -230,6 +245,7 @@ const tick = (s: State) => {
     birdLives: livesAfter,                      //lives in next state
     hitCooldown: hitCooldownAfter,              //hit cooldown in next state
     gameEnd: gameEndNow || s1.gameEnd,          //T if game ended
+    score: scoreAfter,                          //score after this tick
     };
 };
 
@@ -370,6 +386,8 @@ const render = (): ((s: State) => void) => {
         
 
         livesText.innerText = `${s.birdLives}`;         //displays text for amount of bird lives
+
+        scoreText.innerText = `${s.score}`;             //displays text for player score
 
         if (s.gameEnd) {show(gameOver);}                 //shows game over message 
     };
