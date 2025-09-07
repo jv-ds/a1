@@ -47,7 +47,7 @@ const Constants = {
     SCROLL: 7,           //speed which field horizontally scrolls
     PIPE_GAP: 100,       //vertical gaps that the bird must fly through
     PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
-    PIPE_SPACE: 200,            //space between pipes
+    PIPE_SPACE: 150,            //space between pipes
     BIRD_X: 3,                  //pixels which bird moves rightward 
     NUM_PIPES: 4,               //total number of pipes
 } as const;
@@ -176,8 +176,8 @@ const collisionType = (bird: Rect, pipes: ReadonlyArray<Pipe>): "TOP" | "BOTTOM"
 const tick = (s: State) => {
 
     const spawnCheck = s.scrollX >= s.nextPipeX;
-    const spawnCounterCheck = s.scrollX < Constants.NUM_PIPES;;        
-    const s1 = spawnCheck && spawnCounterCheck ? generatePipe(s) : s;        //if true generate pipe- guarantees even spacing
+    const spawnCounterCheck = s.nextPipe < Constants.NUM_PIPES;;                //ensures finite amount of pipes are produced     
+    const s1 = spawnCheck && spawnCounterCheck ? generatePipe(s) : s;           //if true generate pipe- guarantees even spacing
 
     const velocity = s1.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
     const Y = s1.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
