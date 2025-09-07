@@ -48,6 +48,7 @@ const Constants = {
     PIPE_GAP: 100,       //vertical gaps that the bird must fly through
     PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
     PIPE_SPACE: 120,            //space between pipes
+    BIRD_X: 3,                  //pixels which bird moves rightward 
 } as const;
 
 //Pipe type
@@ -71,6 +72,7 @@ type State = Readonly<{
     pipes: ReadonlyArray<Pipe>;     //list containing pipes in frame
     nextPipe: number;               //id for next pipe
     nextPipeX: number;              //x position for next pipe
+    birdX: number;                  //x position of bird
 }>;
 
 const initialState: State = {
@@ -81,6 +83,7 @@ const initialState: State = {
     pipes: [],              //start with no pipes
     nextPipe: 0,             //initial pipe
     nextPipeX: 0,            //next pipe x coord
+    birdX: Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2,    //start position given in original code
 };
 
 //helper function to calculate pipeGap (gaps in pipes bird can ply through)
@@ -119,11 +122,13 @@ const generatePipe = (s: State): State => {
 const tick = (s: State) => {
 
     const spawnCheck = s.scrollX >= s.nextPipeX;        
-
     const s1 = spawnCheck ? generatePipe(s) : s;        //if true generate pipe- guarantees even spacing
 
     const velocity = s1.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
     const Y = s1.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+
+    const maxX = (Viewport.CANVAS_WIDTH - Birb.WIDTH)/2;            //rightmost position allowed in frame
+    const nextX = Math.min(maxX, s1.birdX + Constants.BIRD_X);      //stops bird going further than halfway
 
     const inFramePipes = s1.pipes.filter(p => p.frame + Constants.PIPE_WIDTH >= s1.scrollX);    //filters only pipes in frame
 
@@ -132,6 +137,7 @@ const tick = (s: State) => {
     ...s1,
     birdVelocity: velocity,
     birdY: Y, 
+    birdX: nextX,                                           // ← apply horizontal motion
     scrollX: s1.scrollX + Constants.SCROLL,                   //each tick, frame moves rightward by scroll value
     pipes: inFramePipes,                        //pipes not in frame are forgotten
     };
@@ -208,12 +214,12 @@ const render = (): ((s: State) => void) => {
     //birdImg moved outside of return(s) function so we don't duplicate in each tick
         const birdImg = createSvgElement(svg.namespaceURI, "image", {
             href: "assets/birb.png",
-            x: `${Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2}`,
-            y: `${Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2}`,
+            x: `${initialState.birdX}`,
+            y: `${initialState.birdY}`,
             width: `${Birb.WIDTH}`,
             height: `${Birb.HEIGHT}`,
         });
-        frame.appendChild(birdImg);         //birdImg attached to frame        
+        svg.appendChild(birdImg);         //birdImg attached to SVG- stops bird from going out of frame        
 
         frame.appendChild(createSvgElement(svg.namespaceURI, "g", { id: "pipes" }));
 
@@ -269,7 +275,7 @@ const render = (): ((s: State) => void) => {
         frame.appendChild(newPipes);                //appends new pipes into frame
 
 
-
+        birdImg.setAttribute("x", `${s.birdX}`);        // each tick updates x position
         birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
 
     };
