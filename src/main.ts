@@ -47,8 +47,9 @@ const Constants = {
     SCROLL: 7,           //speed which field horizontally scrolls
     PIPE_GAP: 100,       //vertical gaps that the bird must fly through
     PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
-    PIPE_SPACE: 120,            //space between pipes
+    PIPE_SPACE: 200,            //space between pipes
     BIRD_X: 3,                  //pixels which bird moves rightward 
+    NUM_PIPES: 4,               //total number of pipes
 } as const;
 
 //Pipe type
@@ -174,8 +175,9 @@ const collisionType = (bird: Rect, pipes: ReadonlyArray<Pipe>): "TOP" | "BOTTOM"
  */
 const tick = (s: State) => {
 
-    const spawnCheck = s.scrollX >= s.nextPipeX;        
-    const s1 = spawnCheck ? generatePipe(s) : s;        //if true generate pipe- guarantees even spacing
+    const spawnCheck = s.scrollX >= s.nextPipeX;
+    const spawnCounterCheck = s.scrollX < Constants.NUM_PIPES;;        
+    const s1 = spawnCheck && spawnCounterCheck ? generatePipe(s) : s;        //if true generate pipe- guarantees even spacing
 
     const velocity = s1.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
     const Y = s1.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
@@ -217,6 +219,8 @@ const tick = (s: State) => {
 
     const scoreAfter = !anyHit ? s1.score + newlyPassed : s1.score;   //if hit, don't award point this tick (avoids doubling up), if no hit, increase by newlypassed
 
+    const win = scoreAfter >= Constants.NUM_PIPES;
+
     //restricts bird's vertical position from going out of screen
     const boundedY =
     topScreen ? 0               //at top force y = 0
@@ -232,7 +236,7 @@ const tick = (s: State) => {
         anyHit && canTakeHit ? 6 : Math.max(0, s1.hitCooldown - 1);
 
     //if no lives, game is over
-    const gameEndNow = livesAfter <= 0;
+    const gameEndNow = livesAfter <= 0 || win;
 
 
     return {        
