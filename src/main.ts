@@ -44,8 +44,18 @@ const Constants = {
     TICK_RATE_MS: 500, // Might need to change this!
     GRAVITY: 1.6,       //pixels fallen per tick
     FLAP: 6,             //pixels 'jumped' when flapped
-    SCROLL: 7           //speed which field horizontally scrolls
+    SCROLL: 7,           //speed which field horizontally scrolls
+    PIPE_GAP: 100,       //vertical gaps that the bird must fly through
+    PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
+    PIPE_SPACE: 120,            //space between pipes
 } as const;
+
+//Pipe type
+type Pipe = Readonly<{
+  id: number;
+  frame: number;    // frame where the pipe exists
+  gapY: number;     //middle of gap
+}>;
 
 // User input
 
@@ -58,6 +68,9 @@ type State = Readonly<{
     birdY: number;   //vertcial position of the bird
     birdVelocity: number;   //velocity of bird (speed at which it falls)
     scrollX: number;        //position of frame in the field
+    pipes: ReadonlyArray<Pipe>;     //list containing pipes in frame
+    nextPipe: number;               //id for next pipe
+    nextPipeX: number;              //x position for next pipe
 }>;
 
 const initialState: State = {
@@ -65,6 +78,36 @@ const initialState: State = {
     birdY: Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2, //bird starts at centre (vertical pos is at centre)
     birdVelocity: 0,        //bird stationary at start
     scrollX: 0,             //frame begins at 0
+    pipes: [],              //start with no pipes
+    nextPipe: 0,             //initial pipe
+    nextPipeX: 0,            //next pipe x coord
+};
+
+//helper function to calculate pipeGap (gaps in pipes bird can ply through)
+const pipeGap = (): number => {
+
+    //ensure both gaps remain on screen
+    const min = Constants.PIPE_GAP / 2;
+    const max = Viewport.CANVAS_HEIGHT - (Constants.PIPE_GAP / 2);
+
+  return min + Math.random() * (max - min);                 //returns random position which stays on screen & bird can fly through
+};
+
+//returns state with new pipe along with old pipes
+const generatePipe = (s: State): State => {
+
+  const newPipe: Pipe = {
+    id: s.nextPipe,
+    frame: s.scrollX + Viewport.CANVAS_WIDTH + Constants.PIPE_WIDTH, //guarantees new pipe spawns at right edge
+    gapY: pipeGap()
+  };
+
+  return {
+    ...s,
+    pipes: s.pipes.concat(newPipe),
+    nextPipe: s.nextPipe + 1,               //increment id
+    nextPipeX: s.nextPipeX + Constants.PIPE_SPACE       //guarantees next spawn is one space later
+  };
 };
 
 /**
@@ -75,14 +118,22 @@ const initialState: State = {
  */
 const tick = (s: State) => {
 
-    const velocity = s.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
-    const Y = s.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+    const spawnCheck = s.scrollX >= s.nextPipeX;        
+
+    const s1 = spawnCheck ? generatePipe(s) : s;        //if true generate pipe- guarantees even spacing
+
+    const velocity = s1.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
+    const Y = s1.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+
+    const inFramePipes = s1.pipes.filter(p => p.frame + Constants.PIPE_WIDTH >= s1.scrollX);    //filters only pipes in frame
+
 
     return {        
-    ...s,
+    ...s1,
     birdVelocity: velocity,
     birdY: Y, 
-    scrollX: s.scrollX + Constants.SCROLL                   //each tick, frame moves rightward by scroll value
+    scrollX: s1.scrollX + Constants.SCROLL,                   //each tick, frame moves rightward by scroll value
+    pipes: inFramePipes,                        //pipes not in frame are forgotten
     };
 };
 
@@ -164,32 +215,8 @@ const render = (): ((s: State) => void) => {
         });
         frame.appendChild(birdImg);         //birdImg attached to frame        
 
-        
-        //Pipe moved outside of return function- avoids appending pipes every frame in return(s)
-        // Draw a static pipe as a demonstration
-        const pipeGapY = 200; // vertical center of the gap
-        const pipeGapHeight = 100;
+        frame.appendChild(createSvgElement(svg.namespaceURI, "g", { id: "pipes" }));
 
-        // Top pipe
-        const pipeTop = createSvgElement(svg.namespaceURI, "rect", {
-            x: "150",
-            y: "0",
-            width: `${Constants.PIPE_WIDTH}`,
-            height: `${pipeGapY - pipeGapHeight / 2}`,
-            fill: "green",
-        });
-
-        // Bottom pipe
-        const pipeBottom = createSvgElement(svg.namespaceURI, "rect", {
-            x: "150",
-            y: `${pipeGapY + pipeGapHeight / 2}`,
-            width: `${Constants.PIPE_WIDTH}`,
-            height: `${Viewport.CANVAS_HEIGHT - (pipeGapY + pipeGapHeight / 2)}`,
-            fill: "green",
-        });
-
-        frame.appendChild(pipeTop);         //pipes attached to frame
-        frame.appendChild(pipeBottom);
 
     /**
      * Renders the current state to the canvas.
@@ -201,6 +228,47 @@ const render = (): ((s: State) => void) => {
     return (s: State) => {
 
         frame.setAttribute("transform", `translate(${-s.scrollX}, 0)`);     //transform updates all children at once, shifts co-ordinates to move to the right (neg moves right)
+
+        //pipes move into return function- redraw all the pipes in each state
+        const oldPipes = frame.querySelector("#pipes");             //looks inside SVG group to grab all pipes in current (old) frame 
+                       
+        const newPipes = createSvgElement(svg.namespaceURI, "g", { id: "pipes" });      //creates fresh empty group
+
+
+        s.pipes.flatMap(p => {
+
+            //sizes for pipe shape (two rectangles)
+            const topHeight   = p.gapY - Constants.PIPE_GAP / 2;
+            const bottomY     = p.gapY + Constants.PIPE_GAP / 2;
+            const bottomHeight = Viewport.CANVAS_HEIGHT - bottomY;
+
+            // Top pipe
+            const pipeTop = createSvgElement(svg.namespaceURI, "rect", {
+                x: `${p.frame}`,
+                y: '0',
+                width: `${Constants.PIPE_WIDTH}`,
+                height:`${topHeight}`,
+                fill: "green",
+            });
+
+            // Bottom pipe
+            const pipeBottom = createSvgElement(svg.namespaceURI, "rect", {
+                x: `${p.frame}`,
+                y: `${bottomY}`,
+                width: `${Constants.PIPE_WIDTH}`,
+                height: `${bottomHeight}`,
+                fill: "green",
+            });
+
+            return [pipeTop, pipeBottom]        //returns the two SVG elements that make up pipe
+        })
+        .forEach(elem => newPipes.appendChild(elem));   //takes array of rectangles and appends to new group
+
+        oldPipes && frame.removeChild(oldPipes);        //removes old pipes from the frame
+
+        frame.appendChild(newPipes);                //appends new pipes into frame
+
+
 
         birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
 
