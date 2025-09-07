@@ -41,15 +41,15 @@ const Birb = {
 
 const Constants = {
     PIPE_WIDTH: 50,
-    TICK_RATE_MS: 500, // Might need to change this!
+    TICK_RATE_MS: 50, // Might need to change this!
     GRAVITY: 1.6,       //pixels fallen per tick
     FLAP: 10,             //pixels 'jumped' when flapped
     SCROLL: 7,           //speed which field horizontally scrolls
-    PIPE_GAP: 100,       //vertical gaps that the bird must fly through
-    PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
-    PIPE_SPACE: 150,            //space between pipes
+    // PIPE_GAP: 100,       //vertical gaps that the bird must fly through
+    // PIPE_GENERATE_RATE: 1200,   //speed in ms to generate pipe
+    // PIPE_SPACE: 150,            //space between pipes
     BIRD_X: 3,                  //pixels which bird moves rightward 
-    NUM_PIPES: 4,               //total number of pipes
+    // NUM_PIPES: 4,               //total number of pipes
 } as const;
 
 //Pipe type
@@ -57,6 +57,13 @@ type Pipe = Readonly<{
   id: number;
   frame: number;    // frame where the pipe exists
   gapY: number;     //middle of gap
+  gapHeight: number;    //height of gap 
+}>;
+
+type ScheduleItem = Readonly<{
+  appearTime: number;       //time (in ms) that the pipe should exist in the frame X position
+  gapY: number;             //middle of gap
+  gapHeight: number;        //height of gap
 }>;
 
 // User input
@@ -77,9 +84,12 @@ type State = Readonly<{
     birdLives: number;
     hitCooldown: number;            //cooldown ticks after bird hits
     score: number;                  //player score
+    elapsedMs: number;              //time progressed since start
+    pending: ReadonlyArray<ScheduleItem>; //pipes not yet spawned
+    totalPipes: number;     //total number of scheduled pipes
 }>;
 
-const initialState: State = {
+const InitialState = (pending: ReadonlyArray<ScheduleItem>): State => ({
     gameEnd: false,
     birdY: Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2, //bird starts at centre (vertical pos is at centre)
     birdVelocity: 0,        //bird stationary at start
@@ -90,35 +100,39 @@ const initialState: State = {
     birdX: Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2,    //start position given in original code
     birdLives: 3,           //starts with 3
     hitCooldown: 0,         //cooldown after a hit to prevent overlapping hits
-    score: 0                //initially 0
-};  
+    score: 0,               //initially 0
+    elapsedMs: 0,           //time not yet progressed
+    pending,                //list of scheduled pipes not yet spawned
+    totalPipes: pending.length, //
+});  
 
-//helper function to calculate pipeGap (gaps in pipes bird can ply through)
-const pipeGap = (): number => {
+//REMOVED helper functions below so CSV can control pipe generating/spawning
+// //helper function to calculate pipeGap (gaps in pipes bird can ply through)
+// const pipeGap = (): number => {
 
-    //ensure both gaps remain on screen
-    const min = Constants.PIPE_GAP / 2;
-    const max = Viewport.CANVAS_HEIGHT - (Constants.PIPE_GAP / 2);
+//     //ensure both gaps remain on screen
+//     const min = Constants.PIPE_GAP / 2;
+//     const max = Viewport.CANVAS_HEIGHT - (Constants.PIPE_GAP / 2);
 
-  return min + Math.random() * (max - min);                 //returns random position which stays on screen & bird can fly through
-};
+//   return min + Math.random() * (max - min);                 //returns random position which stays on screen & bird can fly through
+// };
 
-//returns state with new pipe along with old pipes
-const generatePipe = (s: State): State => {
+// //returns state with new pipe along with old pipes
+// const generatePipe = (s: State): State => {
 
-  const newPipe: Pipe = {
-    id: s.nextPipe,
-    frame: s.scrollX + Viewport.CANVAS_WIDTH + Constants.PIPE_WIDTH, //guarantees new pipe spawns at right edge
-    gapY: pipeGap()
-  };
+//   const newPipe: Pipe = {
+//     id: s.nextPipe,
+//     frame: s.scrollX + Viewport.CANVAS_WIDTH + Constants.PIPE_WIDTH, //guarantees new pipe spawns at right edge
+//     gapY: pipeGap()
+//   };
 
-  return {
-    ...s,
-    pipes: s.pipes.concat(newPipe),
-    nextPipe: s.nextPipe + 1,               //increment id
-    nextPipeX: s.nextPipeX + Constants.PIPE_SPACE       //guarantees next spawn is one space later
-  };
-};
+//   return {
+//     ...s,
+//     pipes: s.pipes.concat(newPipe),
+//     nextPipe: s.nextPipe + 1,               //increment id
+//     nextPipeX: s.nextPipeX + Constants.PIPE_SPACE       //guarantees next spawn is one space later
+//   };
+// };
 
 //helper shape type for rectangles
 type Rect = Readonly<{ x:number; y:number; width:number; height:number }>;
@@ -128,14 +142,27 @@ const overlap = (a: Rect, b: Rect) => a.x < b.x + b.width && a.x + a.width > b.x
 
 //takes pipe, calculates two rectangles that make up pipe
 const pipeRects = (p: Pipe): { top: Rect; bottom: Rect } => {
-    const topHeight    = p.gapY - Constants.PIPE_GAP / 2;
-    const bottomY      = p.gapY + Constants.PIPE_GAP / 2;
+    const topHeight    = p.gapY - p.gapHeight / 2;              //uses gapHeight instead of constant value (can have diff size based off schedule)
+    const bottomY      = p.gapY + p.gapHeight / 2;
     const bottomHeight = Viewport.CANVAS_HEIGHT - bottomY;
 
   return {      //returns rectangles
     top:    { x: p.frame, y: 0, width: Constants.PIPE_WIDTH, height: topHeight },
     bottom: { x: p.frame, y: bottomY, width: Constants.PIPE_WIDTH, height: bottomHeight },
   };
+};
+
+//turns csv rows into type ScheduleItem- entire function was generated using ChatGPT
+const csvParser = (csv: string): ReadonlyArray<ScheduleItem> => {
+  const [header, ...rows] = csv.trim().split(/\r?\n/);              
+  return rows
+    .map(r => r.split(",").map(s => s.trim()))
+    .filter(cols => cols.length >= 3)
+    .map(([gap_y, gap_height, time]) => ({
+      appearTime: parseFloat(time) * 1000,
+      gapY: parseFloat(gap_y) * Viewport.CANVAS_HEIGHT,
+      gapHeight: parseFloat(gap_height) * Viewport.CANVAS_HEIGHT,
+    }));
 };
 
 //prevents bird moving outside of screen
@@ -173,85 +200,102 @@ const collisionType = (bird: Rect, pipes: ReadonlyArray<Pipe>): "TOP" | "BOTTOM"
  * @param s Current state
  * @returns Updated state
  */
+// Proceed one time step  ← REPLACE entire tick()
 const tick = (s: State) => {
+    const elapsedMsNext = s.elapsedMs + Constants.TICK_RATE_MS;         //adds tick to elapsed time
 
-    const spawnCheck = s.scrollX >= s.nextPipeX;
-    const spawnCounterCheck = s.nextPipe < Constants.NUM_PIPES;;                //ensures finite amount of pipes are produced     
-    const s1 = spawnCheck && spawnCounterCheck ? generatePipe(s) : s;           //if true generate pipe- guarantees even spacing
+    const due = s.pending.filter(it => it.appearTime > s.elapsedMs && it.appearTime <= elapsedMsNext);  //selects pipes with appearTime between previous and current tick from pending pipes
 
-    const velocity = s1.birdVelocity + Constants.GRAVITY;        //each tick, velocity increased by gravity (constant as ticks progress)
-    const Y = s1.birdY + velocity;                               //updated to move the bird down based on how fast its falling (due to velocity and gravity)
+    const pendingAfter = s.pending.filter(it => it.appearTime > elapsedMsNext);     //filters schedule to keep ONLY pipes that appear after current tick
 
-    const maxX = (Viewport.CANVAS_WIDTH - Birb.WIDTH)/2;            //rightmost position allowed in frame
-    const nextX = Math.min(maxX, s1.birdX + Constants.BIRD_X);      //stops bird going further than halfway
+    const scrollPerMs = Constants.SCROLL / Constants.TICK_RATE_MS;      //pixels per tick -> pixels per ms (pipe scheduling uses ms not ticks)
 
-    const inFramePipes = s1.pipes.filter(p => p.frame + Constants.PIPE_WIDTH >= s1.scrollX);    //filters only pipes in frame
+    const newPipes: ReadonlyArray<Pipe> =               //create new pipe objects for schedules pipes in due
+        due.map((curr_item, i) => ({
+            id: s.nextPipe + i,
+            frame: (scrollPerMs * curr_item.appearTime) + Viewport.CANVAS_WIDTH + Constants.PIPE_WIDTH,
+            gapY: curr_item.gapY,
+            gapHeight: curr_item.gapHeight,
+        }));
 
-    const birdFrameX = nextX + s1.scrollX;                   //gives frame position of bird
-    const birdRect: Rect = { x: birdFrameX, y: Y, width: Birb.WIDTH, height: Birb.HEIGHT };     //bird's rectangle in the game
+    //calculate bird physics
+    const velocity = s.birdVelocity + Constants.GRAVITY;
+    const Y = s.birdY + velocity;
+    const maxX = (Viewport.CANVAS_WIDTH - Birb.WIDTH) / 2;
+    const nextX = Math.min(maxX, s.birdX + Constants.BIRD_X);
 
-    const pipeHit = collisionType(birdRect, inFramePipes);  //checks to see collision type     
+    //Merges list of already spawned pipes with pipes spawned in curr tick, removes old ones (only keeps relevant pipes)
+    const inFramePipes = s.pipes
+        .concat(newPipes)
+        .filter(p => p.frame + Constants.PIPE_WIDTH >= s.scrollX);
 
+    const birdFrameX = nextX + s.scrollX;               //gives frame position of bird
+
+    const birdRect: Rect = { x: birdFrameX, y: Y, width: Birb.WIDTH, height: Birb.HEIGHT };     ////bird's rectangle in the game
+           
+    const pipeHit = collisionType(birdRect, inFramePipes);           //checks to see collision type 
+        
     //top and bottom screen checks
-    const topScreen = Y <= 0;      
+    const topScreen = Y <= 0;
     const bottomScreen = Y + Birb.HEIGHT >= Viewport.CANVAS_HEIGHT;
 
-    const birdFrameXPrev = s1.birdX + s1.scrollX;                   //calculates bird X position BEFORE tick updates
-    const birdFrameXNext = nextX + (s1.scrollX + Constants.SCROLL); //calculates next bird x position
+    const birdFrameXPrev = s.birdX + s.scrollX;                         //calculates bird X position BEFORE tick updates
+    const birdFrameXNext = nextX + (s.scrollX + Constants.SCROLL);      //calculates next bird x position
 
     //checks if bird has passed
     const newlyPassed =
-    inFramePipes
-        .map(p => p.frame + Constants.PIPE_WIDTH)       //turns each pipe into right edge, if right edge goes from right to left of the bird, bird has passed
-        .filter(rightEdge => rightEdge > birdFrameXPrev && rightEdge <= birdFrameXNext) //keeps only pipes with right edges that were crossed during CURRENT tick - prevents double counting
+      inFramePipes
+        .map(p => p.frame + Constants.PIPE_WIDTH)
+        .filter(rightEdge => rightEdge > birdFrameXPrev && rightEdge <= birdFrameXNext)
         .length;
 
-
-    const canTakeHit = s1.hitCooldown <= 0;         //activates cooldown to prevent losing multiple lives from one hit
-
-    const anyHit = pipeHit !== "NONE" || topScreen || bottomScreen; //true if bird hit pipe or top or bottom
+    const canTakeHit = s.hitCooldown <= 0;      //activates cooldown to prevent losing multiple lives from one hit
+    const anyHit = pipeHit !== "NONE" || topScreen || bottomScreen;     //true if bird hit pipe or top or bottom
 
     //calculates velocity after tick based off hit
     const bounceVel =
-        topScreen || pipeHit === "TOP" ?  randomNum(4, 10)     // bounce down
-        : bottomScreen || pipeHit === "BOTTOM" ? -randomNum(4, 10)     // bounce up
-        : velocity;
+      topScreen || pipeHit === "TOP"    ?  randomNum(4, 10)  :
+      bottomScreen || pipeHit === "BOTTOM" ? -randomNum(4, 10) :
+      velocity;
 
-    const scoreAfter = !anyHit ? s1.score + newlyPassed : s1.score;   //if hit, don't award point this tick (avoids doubling up), if no hit, increase by newlypassed
-
-    const win = scoreAfter >= Constants.NUM_PIPES;
-
-    //restricts bird's vertical position from going out of screen
+    const scoreAfter = !anyHit ? s.score + newlyPassed : s.score;   //if hit, don't award point this tick (avoids doubling up), if no hit, increase by newlypassed
     const boundedY =
-    topScreen ? 0               //at top force y = 0
-    : bottomScreen ? Viewport.CANVAS_HEIGHT - Birb.HEIGHT       //at bottom force y = bottom edge
-    : Y;
+      topScreen    ? 0 :        //at top force y = 0
+      bottomScreen ? Viewport.CANVAS_HEIGHT - Birb.HEIGHT :     //at bottom force y = bottom edge
+                     Y;
 
-    //takes away life
+    
+    //takes away life                 
     const livesAfter =
-        anyHit && canTakeHit ? Math.max(0, s1.birdLives - 1) : s1.birdLives;
+      anyHit && canTakeHit ? Math.max(0, s.birdLives - 1) : s.birdLives;
 
     //if hit happened, reset cooldown to 6 ticks, else reduce by 1
-    const hitCooldownAfter =
-        anyHit && canTakeHit ? 6 : Math.max(0, s1.hitCooldown - 1);
+      const hitCooldownAfter =
+      anyHit && canTakeHit ? 6 : Math.max(0, s.hitCooldown - 1);
+
+    //win when all scheduled pipes are passed
+    const win = scoreAfter >= s.totalPipes;
 
     //if no lives, game is over
     const gameEndNow = livesAfter <= 0 || win;
 
-
-    return {        
-    ...s1,
-    birdVelocity: bounceVel,
-    birdY: clamp(boundedY, 0, Viewport.CANVAS_HEIGHT - Birb.HEIGHT),
-    birdX: nextX,                                           // ← apply horizontal motion
-    scrollX: s1.scrollX + Constants.SCROLL,                   //each tick, frame moves rightward by scroll value
-    pipes: inFramePipes,                        //pipes not in frame are forgotten
-    birdLives: livesAfter,                      //lives in next state
-    hitCooldown: hitCooldownAfter,              //hit cooldown in next state
-    gameEnd: gameEndNow || s1.gameEnd,          //T if game ended
-    score: scoreAfter,                          //score after this tick
-    };
+    return {
+      ...s,
+      elapsedMs: elapsedMsNext,
+      nextPipe: s.nextPipe + newPipes.length,    //increase id counter
+      birdVelocity: bounceVel,
+      birdY: clamp(boundedY, 0, Viewport.CANVAS_HEIGHT - Birb.HEIGHT),
+      birdX: nextX,                             // ← apply horizontal motion
+      scrollX: s.scrollX + Constants.SCROLL,    //each tick, frame moves rightward by scroll value
+      pipes: inFramePipes,                      //pipes not in frame are forgotten
+      birdLives: livesAfter,                    //lives in next state
+      hitCooldown: hitCooldownAfter,            //hit cooldown in next state
+      gameEnd: gameEndNow || s.gameEnd,         //T if game ended
+      score: scoreAfter,                        //score after this tick
+      pending: pendingAfter,
+  };
 };
+
 
 // Rendering (side effects)
 
@@ -324,8 +368,8 @@ const render = (): ((s: State) => void) => {
     //birdImg moved outside of return(s) function so we don't duplicate in each tick
         const birdImg = createSvgElement(svg.namespaceURI, "image", {
             href: "assets/birb.png",
-            x: `${initialState.birdX}`,
-            y: `${initialState.birdY}`,
+            x: `${Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2}`,
+            y: `${Viewport.CANVAS_HEIGHT / 2 - Birb.HEIGHT / 2}`,
             width: `${Birb.WIDTH}`,
             height: `${Birb.HEIGHT}`,
         });
@@ -354,8 +398,8 @@ const render = (): ((s: State) => void) => {
         s.pipes.flatMap(p => {
 
             //sizes for pipe shape (two rectangles)
-            const topHeight   = p.gapY - Constants.PIPE_GAP / 2;
-            const bottomY     = p.gapY + Constants.PIPE_GAP / 2;
+            const topHeight   = p.gapY - p.gapHeight / 2;       //pipe shape based off csv- not constant
+            const bottomY     = p.gapY + p.gapHeight / 2;
             const bottomHeight = Viewport.CANVAS_HEIGHT - bottomY;
 
             // Top pipe
@@ -399,29 +443,32 @@ const render = (): ((s: State) => void) => {
 
 export const state$ = (csvContents: string): Observable<State> => {
     /** User input */
-
     const key$ = fromEvent<KeyboardEvent>(document, "keypress");
-    const fromKey = (keyCode: Key) =>
-        key$.pipe(filter(({ code }) => code === keyCode));
+    const fromKey = (keyCode: Key) => key$.pipe(filter(({ code }) => code === keyCode));
+
+    //build schedule from csv file
+    const schedule: ReadonlyArray<ScheduleItem> = csvParser(csvContents);
+    const initialState = InitialState(schedule);
 
     /** Determines the rate of time steps */
-    const tick$ = interval(Constants.TICK_RATE_MS).pipe(map(() => (s: State): State => tick(s)));      //each tick turned into reducer function, moves bird through tick(s)
+    const tick$ = interval(Constants.TICK_RATE_MS).pipe(map(() => (s: State): State => tick(s)));
 
-    const flap$ = fromKey("Space").pipe(            //listens to spacebar       
-    map(() => (s: State): State => ({               //transforms into reducer function
-      ...s,                                         //copies current state
-      birdVelocity: -Constants.FLAP,                //sets upward velocity (negative gravity since we want to move upward)
-    }))
-  );
+    const flap$ = fromKey("Space").pipe(            //listens to spacebar   
+        map(() => (s: State): State => ({           //transforms into reducer function
+        ...s,                                       //copies current state
+        birdVelocity: -Constants.FLAP,              //sets upward velocity (negative gravity since we want to move upward)
+        }))
+    );
 
-  const reducers$: Observable<(s: State) => State> =                    //declare observable to take state and return a state
-    new Observable(subscriber => {                                      
-      const subscribers = [tick$, flap$].map(src => src.subscribe(subscriber));   //for each reducer function, subscribe to it and send what it emits to its subscriber
-      return () => subscribers.forEach(s => s.unsubscribe());                     //both reducer functions ignored when reducer$ is unsubscribed 
-    });
+    const reducers$: Observable<(s: State) => State> =          //declare observable to take state and return a state
+        new Observable(subscriber => {
+        const subscribers = [tick$, flap$].map(src => src.subscribe(subscriber));       //for each reducer function, subscribe to it and send what it emits to its subscriber
+        return () => subscribers.forEach(s => s.unsubscribe());                         //both reducer functions ignored when reducer$ is unsubscribed 
+        });
 
-  return reducers$.pipe(scan((state, reducer) => reducer(state), initialState));    //transform stream of reducer functions by applying them, producing next state, outputting state values 
+    return reducers$.pipe(scan((state, reducer) => reducer(state), initialState));          //transform stream of reducer functions by applying them, producing next state, outputting state values 
 };
+
 
 
 
