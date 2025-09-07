@@ -82,6 +82,7 @@ const tick = (s: State) => {
     ...s,
     birdVelocity: velocity,
     birdY: Y, 
+    scrollX: s.scrollX + Constants.SCROLL                   //each tick, frame moves rightward by scroll value
     };
 };
 
