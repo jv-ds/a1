@@ -73,6 +73,7 @@ type State = Readonly<{
     nextPipe: number;               //id for next pipe
     nextPipeX: number;              //x position for next pipe
     birdX: number;                  //x position of bird
+    birdLives: number;
 }>;
 
 const initialState: State = {
@@ -84,6 +85,7 @@ const initialState: State = {
     nextPipe: 0,             //initial pipe
     nextPipeX: 0,            //next pipe x coord
     birdX: Viewport.CANVAS_WIDTH * 0.3 - Birb.WIDTH / 2,    //start position given in original code
+    birdLives: 3,           //starts with 3
 };
 
 //helper function to calculate pipeGap (gaps in pipes bird can ply through)
@@ -277,7 +279,9 @@ const render = (): ((s: State) => void) => {
 
         birdImg.setAttribute("x", `${s.birdX}`);        // each tick updates x position
         birdImg.setAttribute("y", `${s.birdY}`);        //in return(s) because each tick should update the existing image's y position
+        
 
+        livesText.innerText = `${s.birdLives}`;         //displays text for amount of bird lives
     };
 };
 
